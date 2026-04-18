@@ -1,0 +1,25 @@
+import os
+
+def create_empty_file(filepath):
+    """Creates an empty file at the specified filepath.
+
+    Args:
+        filepath (str): The path to the file to create.
+
+    Returns:
+        bool: True if the file was created successfully, False otherwise.
+    """
+    try:
+        with open(filepath, 'w') as f:
+            pass  # Creates an empty file
+        return True
+    except Exception as e:
+        print(f"Error creating file: {e}")
+        return False
+
+if __name__ == "__main__":
+    filename = "TEST.txt"
+    if create_empty_file(filename):
+        print(f"'{filename}' 파일이 성공적으로 생성되었습니다.")
+    else:
+        print(f"'{filename}' 파일을 생성하지 못했습니다.")

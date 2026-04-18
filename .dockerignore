@@ -1,0 +1,99 @@
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv
+venv/
+env/
+ENV/
+.venv/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Testing
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Documentation
+docs/_build/
+site/
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+dist/
+
+# Project specific
+logs/
+*.log
+*.db
+*.sqlite
+*.sqlite3
+data/
+backups/
+audit_*.json
+.env
+.env.local
+.env.*.local
+
+# OS
+Thumbs.db
+.DS_Store
+._*
+.AppleDouble
+.LSOverride
+*.swp
+*.swo
+
+# Temporary
+*.tmp
+.cache/
+temp/
