@@ -5,9 +5,9 @@ import { api } from '../lib/api'
 import AgentSprite from '../components/AgentSprite'
 
 const INITIAL_AGENTS = [
-  { id: 'executor_engine', name: 'Jarvis-Executor', role: '작업 실행', status: '대기', color: '#7aa2f7', charImg: 'char_1.png' },
-  { id: 'core_intelligence', name: 'Jarvis-Core', role: '일일 채팅', status: '유휴', color: '#bb9af7', charImg: 'char_2.png' },
-  { id: 'master_architect', name: 'Jarvis-Architect', role: '뇌 엔진', status: '대기', color: '#9ece6a', charImg: 'char_3.png' },
+  { id: 'executor_engine', name: '자비스-실행기', role: '작업 실행', status: '대기', color: '#7aa2f7', charImg: 'char_1.png' },
+  { id: 'core_intelligence', name: '자비스-코어', role: '일상 대화', status: '유휴', color: '#bb9af7', charImg: 'char_2.png' },
+  { id: 'master_architect', name: '자비스-아키텍트', role: '지능 엔진', status: '대기', color: '#9ece6a', charImg: 'char_3.png' },
 ]
 
 export default function App() {
@@ -120,30 +120,30 @@ export default function App() {
       const res = await api.chat(message)
       console.log('📥 Received response:', res)
       
-      // Extract message from nested response structure
+      // 응답 파싱 및 메시지 추출
       let replyText = "응답을 받지 못했습니다."
       let suggestedActions: any[] = []
       
-      // Handle different response formats
       if (res.data) {
         const data = res.data
         
-        // If it's the orchestrator response with status/plan/execution_steps
-        if (data.status) {
+        // 1. 단순 대화 (mode === 'chat') 또는 status가 없는 경우
+        if (data.mode === 'chat' || !data.status) {
+          replyText = data.message || data.reply || data.result || "메시지가 비어 있습니다."
+        } 
+        // 2. 작업 수행 (mode === 'task') 또는 status가 있는 경우
+        else if (data.status) {
           const status = data.status
           const execSteps = data.execution_steps || []
           const execCount = execSteps.length
           
-          replyText = `✅ 작업 완료 (상태: ${status}, 단계: ${execCount})`
+          // 작업 요약 메시지가 있으면 그것을 사용하고, 없으면 기본 완료 문구 사용
+          replyText = data.message || `✅ 작업이 수행되었습니다. (상태: ${status}, 단계: ${execCount})`
           if (execCount > 0) suggestedActions = execSteps
-        } else {
-          // Simple message response
-          replyText = data.message || data.reply || data.result || "응답을 받지 못했습니다."
         }
         
         suggestedActions = data.suggested_actions || suggestedActions
       } else {
-        // Fallback for direct response
         replyText = res.message || res.reply || res.result || JSON.stringify(res)
       }
       
@@ -208,8 +208,8 @@ export default function App() {
             <Cpu className="text-white" size={20} />
           </div>
           <div>
-            <h1 className="text-sm font-bold text-white tracking-tight">JARVIS</h1>
-            <p className="text-[10px] text-[#565f89]">Core vNext</p>
+            <h1 className="text-sm font-bold text-white tracking-tight">자비스 (JARVIS)</h1>
+            <p className="text-[10px] text-[#565f89]">차세대 코어 4.0</p>
           </div>
         </div>
 
@@ -259,7 +259,7 @@ export default function App() {
                 <Layout size={16} className="text-[#7aa2f7]" />
                 <span className="text-[10px] lg:text-xs font-bold text-white/50 uppercase tracking-widest bg-[#0f0f1a]/40 px-2 py-1 rounded">자비스 공간 (Office)</span>
               </div>
-              <div className="text-[9px] text-white/20 tracking-tighter">AGENT OS vNext</div>
+              <div className="text-[9px] text-white/20 tracking-tighter">자비스 에이전트 OS</div>
             </div>
 
             {/* Wandering Agents */}
@@ -415,7 +415,7 @@ export default function App() {
 
             {/* System Prompt (Small at bottom) */}
             <div className="px-4 py-1.5 bg-[#16161e] border-t border-[#414868]/10 flex items-center gap-2">
-              <span className="text-[9px] text-[#565f89] font-bold uppercase tracking-wider shrink-0">System:</span>
+              <span className="text-[9px] text-[#565f89] font-bold uppercase tracking-wider shrink-0">시스템:</span>
               <div className="text-[9px] text-[#414868] truncate italic">
                 {promptText}
               </div>

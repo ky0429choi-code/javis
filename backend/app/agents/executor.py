@@ -1,141 +1,120 @@
 import logging
-import os
 import re
 from typing import Dict, Any, Optional
-from app.llm_router import router
+from app.schemas.v4_core import SubTask
+from app.llm.router import router
+from app.harness.hooks_engine import hooks_engine
 from app.harness.rules_engine import rules_engine
-from app.harness.hooks import protection_hook
 from app.tools.file_tool import FileTool
+from app.tools.backup_tool import BackupTool
 
 logger = logging.getLogger(__name__)
 
-class Executor:
+class ExecutorAgent:
+    """
+    JARVIS Executor Agent.
+    Role: Executes SubTasks (code gen, file ops) through Harness Hooks.
+    """
     def __init__(self):
         self.identity = "Jarvis"
-        self.file_tool = FileTool()
-        self.system_base = f"당신은 {self.identity}입니다. 사용자의 요청에 따라 최적화된 코드를 작성하고 수정하세요."
 
-    async def execute_task(self, subtask: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute(self, task: SubTask, context: Optional[dict] = None) -> Dict[str, Any]:
         """
-        Generates code and applies changes to the filesystem.
-        Returns structured result with ok, path, output, error fields.
+        Executes a specific subtask using a 4-step hardened cycle:
+        Generation -> Interception (Gate 1) -> Interception (Hooks) -> Registry Execution.
         """
-        action_type = subtask.get("action_type", "create_file")
-        target_path = subtask.get("target_path", "")
-        instruction = subtask.get("instruction", "")
-        content = subtask.get("content")  # Direct content if provided
+        logger.info(f"Executor: Processing task '{task.title}'...")
         
-        logger.info(f"Executor: Processing {action_type} for {target_path}")
+        # 1. Generation Phase
+        rules = rules_engine.get_system_prompt_extension("EXECUTOR")
+        prompt = (
+            f"대상 경로: {task.path}\n"
+            f"지시 사항: {task.instruction}\n"
+            "작업 결과물(코드 또는 텍스트)만 출력하세요. 설명은 생략합니다."
+        )
+        system_prompt = f"당신은 {self.identity}의 실행 모듈입니다. {rules}"
+        
+        raw_output = await router.call(
+            prompt=prompt, 
+            system=system_prompt,
+            task_type="complex"
+        )
+        
+        content = self._extract_content(raw_output)
 
-        # 1. Validate inputs
-        if not target_path:
+        # 2. HITL Gate 1 — 실행 전 위험도 게이트 (독립 모듈)
+        from app.core.hitl.gate1 import gate1, GateDecision
+        gate1_result = await gate1.evaluate(
+            action=task.action,
+            target_path=task.path,
+            content=content,
+        )
+
+        if gate1_result.decision == GateDecision.BLOCK:
+            logger.error(f"Executor: BLOCKED by Gate 1 ({gate1_result.reason})")
+            return {"ok": False, "status": "blocked", "reason": gate1_result.reason}
+
+        if gate1_result.decision == GateDecision.HOLD:
+            logger.warning(f"Executor: HOLD by Gate 1 ({gate1_result.reason})")
             return {
                 "ok": False,
-                "action": action_type,
-                "path": target_path,
-                "error": "target_path is required",
-                "agent": self.identity
+                "status": "pending_approval",
+                "pattern": gate1_result.pattern,
+                "content": content,
+                "target_path": task.path,
             }
 
-        # 2. Protection Hook Check
-        try:
-            protection_hook(action_type, target_path)
-        except Exception as e:
-            logger.warning(f"Executor: Protection hook blocked action: {e}")
+        # 3. Hooks Engine — 코드 패턴 보안 검사
+        hook_res = await hooks_engine.intercept(content, {"task": task.title, "path": task.path})
+
+        if hook_res.action == "block":
+            logger.error(f"Executor: BLOCKED by Hook Engine ({hook_res.reason})")
+            return {"ok": False, "status": "blocked", "reason": hook_res.reason}
+
+        if hook_res.action == "pending_approval":
+            logger.warning(f"Executor: HOLD by Hooks ({hook_res.pattern})")
             return {
                 "ok": False,
-                "action": action_type,
-                "path": target_path,
-                "error": f"Protected: {str(e)}",
-                "agent": self.identity
+                "status": "pending_approval",
+                "pattern": hook_res.pattern,
+                "content": content,
+                "target_path": task.path,
             }
 
-        # 3. Generate content if not provided
-        if not content:
-            try:
-                rules = rules_engine.get_system_prompt_extension("BACKEND")
-                prompt = f"대상: {target_path}\n명령: {instruction}\n적절한 코드/내용을 생성하세요."
-                system_prompt = self.system_base + rules + "\n마크다운 코드 블록으로 감싸주세요."
-                
-                code_result = await router.call(prompt=prompt, system=system_prompt)
-                content = self._extract_code_from_markdown(code_result)
-                
-                if not content:
-                    content = code_result  # Fallback to raw LLM response
-                    
-            except Exception as e:
-                logger.error(f"Executor: LLM call failed: {e}")
-                return {
-                    "ok": False,
-                    "action": action_type,
-                    "path": target_path,
-                    "error": f"Code generation failed: {str(e)}",
-                    "agent": self.identity
-                }
-
-        # 4. Execute file operation
+        # 4. Registry Execution Phase (SkillRegistry)
         try:
-            if action_type == "create_file":
-                res = self.file_tool.create_file(target_path, content)
-            elif action_type in ["update_file", "modify_file"]:
-                res = self.file_tool.update_file(target_path, content)
-            else:
-                return {
-                    "ok": False,
-                    "action": action_type,
-                    "path": target_path,
-                    "error": f"Unsupported action: {action_type}",
-                    "agent": self.identity
-                }
+            from app.harness.skills.registry import skill_registry
             
-            if res.get("ok"):
-                logger.info(f"Executor: Successfully {action_type} at {target_path}")
-                return {
-                    "ok": True,
-                    "action": action_type,
-                    "path": target_path,
-                    "output": f"Applied {action_type} to {target_path}",
-                    "agent": self.identity
-                }
-            else:
-                logger.error(f"Executor: File operation failed: {res.get('error')}")
-                return {
-                    "ok": False,
-                    "action": action_type,
-                    "path": target_path,
-                    "error": res.get("error", "Unknown file operation error"),
-                    "agent": self.identity
-                }
-                
-        except Exception as e:
-            logger.error(f"Executor: Unexpected error during {action_type}: {e}")
-            return {
-                "ok": False,
-                "action": action_type,
-                "path": target_path,
-                "error": f"Execution error: {str(e)}",
-                "agent": self.identity
+            # Map action to skill
+            skill_name = "file_skill"
+            if task.action == "backup":
+                skill_name = "backup_skill"
+            elif task.action == "diagnostic":
+                skill_name = "diag_skill"
+            
+            skill_task = {
+                "action": task.action,
+                "path": task.path,
+                "content": content
             }
+            
+            res = await skill_registry.execute(skill_name, skill_task, context)
+            
+            return {
+                "ok": res.get("ok", False),
+                "status": "executed",
+                "content": content,
+                "tool_result": res.get("result", res.get("error", "Error in skill"))
+            }
+        except Exception as e:
+            logger.error(f"Executor: Skill execution failed: {e}")
+            return {"ok": False, "status": "execution_failed", "error": str(e)}
 
-    def _extract_code_from_markdown(self, text: str) -> str:
-        """
-        Extracts code from markdown code blocks.
-        Handles multiple formats: ```python, ```json, plain ```.
-        """
-        # Try to find markdown code block
-        patterns = [
-            r"```(?:[\w]*)\s*\n([\s\S]*?)\n```",  # ```python ... ```
-            r"```([\s\S]*?)```",  # ``` ... ```
-        ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, text)
-            if match:
-                extracted = match.group(1).strip()
-                if extracted:
-                    return extracted
-        
-        # If no code block found, return text as-is (might be plain text)
+    def _extract_content(self, text: str) -> str:
+        """Extracts code from markdown blocks if present."""
+        match = re.search(r"```(?:[\w]*)\s*\n([\s\S]*?)\n```", text)
+        if match:
+            return match.group(1).strip()
         return text.strip()
 
-executor = Executor()
+executor = ExecutorAgent()

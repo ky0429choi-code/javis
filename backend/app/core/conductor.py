@@ -1,117 +1,267 @@
-from app.brains.gemma_brain import GemmaBrain
-from app.brains.gpt_oss_brain import GptOssBrain
-from app.brains.qwen_brain import QwenBrain
-from app.engines.intent_engine import IntentEngine
-from app.engines.planning_engine import PlanningEngine
-from app.engines.routing_engine import RoutingEngine
+import logging
+import asyncio
+import time
+import uuid
+from typing import Dict, Any, Optional, List
+from app.llm.router import router
+from app.agents.planner import planner
+from app.agents.executor import executor
+from app.agents.reviewer import reviewer
+from app.harness.rules_engine import rules_engine
+from app.harness.hooks_engine import hooks_engine
+from app.schemas.v4_core import IntentResult, PlanResult, SubTask, HookAction
+from app.schemas.confidence import StepConfidence, PipelineConfidence, PipelineComponent
 from app.engines.approval_engine import ApprovalEngine
-from app.engines.reflection_engine import ReflectionEngine
-from app.engines.audit_engine import AuditEngine
 from app.memory.repository import Repository
-from app.tools.file_tool import FileTool
+from app.core.confidence_collector import get_confidence_collector
+from app.core.completion_reporter import get_completion_reporter
+
+logger = logging.getLogger(__name__)
+
 
 class JarvisConductor:
-    def __init__(self) -> None:
-        self.repo = Repository()
-        self.intent_engine = IntentEngine()
-        self.planning_engine = PlanningEngine()
-        self.routing_engine = RoutingEngine()
+    """
+    JARVIS Core 4.0 Orchestrator (Hardened + Confidence Instrumented).
+    Implements the full Agent Pipeline: Plan -> Execute -> Review.
+    Each step is instrumented with longitudinal confidence tracking.
+    """
+    def __init__(self):
+        self.identity = "Jarvis"
         self.approval_engine = ApprovalEngine()
-        self.reflection_engine = ReflectionEngine()
-        self.audit_engine = AuditEngine(self.repo)
-        self.file_tool = FileTool()
-        self.brains = {
-            "gemma": GemmaBrain(),
-            "gpt_oss": GptOssBrain(),
-            "qwen": QwenBrain(),
-        }
+        self.repo = Repository()
 
-    async def chat(self, message: str, mode: str = "chat", context: dict | None = None) -> dict:
+    async def process_request(self, message: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Entry point for all JARVIS operations."""
         context = context or {}
-        intent = self.intent_engine.resolve(message, mode, context)
-        plan = self.planning_engine.build(intent)
-        route = self.routing_engine.select(intent)
-        system = self.repo.get_prompts()["master"]
-        result = await self.brains[route["brain"]].run(prompt=message, system=system)
-        
-        # New: Parse autonomous actions from brain result
-        suggested_actions = self.parse_and_queue_actions(result)
-        
-        reflection = self.reflection_engine.review(result, intent)
-        self.audit_engine.log("chat_handled", {"intent": intent, "route": route, "result": result[:500], "actions_queued": len(suggested_actions)})
+        task_id = f"TASK-{uuid.uuid4().hex[:8].upper()}"
+        start_time = time.time()
+
+        collector = get_confidence_collector()
+        reporter = get_completion_reporter()
+
+        # 파이프라인 신뢰도 컨테이너
+        pipeline_confidence = PipelineConfidence(
+            task_id=task_id,
+            goal=message,
+            created_at=__import__("datetime").datetime.now().isoformat(),
+        )
+
+        # 1. Intent Stage
+        intent = IntentResult(goal=message, context=context)
+
+        # 2. Planning Stage
+        plan_start = time.time()
+        pre_plan = await planner.plan(intent.goal, intent.context)
+        rules = rules_engine.get_system_prompt_extension("PLANNER")
+        system_prompt = f"당신은 {self.identity}의 기획 모듈입니다. {rules}"
+
+        raw_plan_response = await router.call(
+            prompt=pre_plan.instruction or message, 
+            system=system_prompt, 
+            task_type="complex"
+        )
+        final_plan = planner.parse_brain_response(raw_plan_response)
+        plan_latency = int((time.time() - plan_start) * 1000)
+
+        plan_ok = final_plan.status != "error"
+        plan_score = collector.record_step(
+            task_id=task_id,
+            component="planner",
+            success=plan_ok,
+            latency_ms=plan_latency,
+            retries=0,
+            provider=None,
+            reason=f"status={final_plan.status}, steps={len(final_plan.steps)}",
+        )
+        pipeline_confidence.steps.append(StepConfidence(
+            component=PipelineComponent.PLANNER,
+            score=plan_score,
+            latency_ms=plan_latency,
+            reason=f"status={final_plan.status}",
+        ))
+
+        # 이상탐지
+        anomaly = collector.detect_anomaly("planner", plan_score)
+        if anomaly:
+            logger.warning(anomaly)
+
+        if not plan_ok:
+            pipeline_confidence.success = False
+            pipeline_confidence.duration_ms = int((time.time() - start_time) * 1000)
+            reporter.generate_report(pipeline_confidence)
+            return {"ok": False, "error": "Plan generation failed.", "task_id": task_id}
+
+        # 3. Execution Pipeline Stage
+        execution_trace = await self._run_agent_pipeline(final_plan, task_id, pipeline_confidence)
+
+        # 4. Audit & Growth Stage (Wiki Agent) - Always attempt to learn
+        wiki_start = time.time()
+        wiki_ok = False
+        try:
+            from app.agents.wiki import wiki_agent
+            asyncio.create_task(wiki_agent.process_task(intent.goal, execution_trace))
+            wiki_ok = True
+            logger.info("Conductor: Wiki Agent 가동 (백그라운드 학습 시작)")
+        except Exception as e:
+            logger.warning(f"Wiki Agent 실행 실패: {e}")
+
+        wiki_latency = int((time.time() - wiki_start) * 1000)
+        wiki_score = collector.record_step(
+            task_id=task_id,
+            component="wiki",
+            success=wiki_ok,
+            latency_ms=wiki_latency,
+            reason="background_learning" if wiki_ok else "skipped_or_failed",
+        )
+        pipeline_confidence.steps.append(StepConfidence(
+            component=PipelineComponent.WIKI,
+            score=wiki_score,
+            latency_ms=wiki_latency,
+            reason="background_learning" if wiki_ok else "skipped",
+        ))
+
+        # 5. 완료보고서 생성
+        pipeline_confidence.duration_ms = int((time.time() - start_time) * 1000)
+        pipeline_confidence.provider_used = getattr(router, '_last_provider', None)
+        report = reporter.generate_report(pipeline_confidence)
+
         return {
-            "intent": intent, 
-            "plan": plan, 
-            "route": route, 
-            "message": result, 
-            "reflection": reflection,
-            "suggested_actions": suggested_actions
+            "ok": True,
+            "task_id": task_id,
+            "goal": intent.goal,
+            "plan": final_plan.model_dump(),
+            "execution_trace": execution_trace,
+            "confidence": {
+                "overall": report.overall_score,
+                "level": report.level,
+                "stars": report.stars,
+                "pipeline": report.pipeline_scores,
+            },
+            "status": "completed_v4"
         }
 
-    def parse_and_queue_actions(self, text: str) -> list[dict]:
-        import json
-        import re
-        actions = []
-        # Look for ACTION: { ... } pattern
-        pattern = r"ACTION:\s*(\{.*?\})"
-        matches = re.finditer(pattern, text, re.DOTALL)
+    async def _run_agent_pipeline(
+        self, plan: PlanResult, task_id: str, pipeline_confidence: PipelineConfidence
+    ) -> List[Dict[str, Any]]:
+        """The Loop: Step-by-step Execution with Hooks, Review, and Confidence."""
+        trace = []
+        collector = get_confidence_collector()
+
+        for step in plan.steps:
+            logger.info(f"Conductor: Starting step '{step.title}'")
+            step_start = time.time()
+
+            step_result, retries_used = await self._execute_step_with_retry(step)
+            step_latency = int((time.time() - step_start) * 1000)
+
+            step_ok = step_result.get("ok", False)
+
+            # Executor 신뢰도 기록
+            exec_score = collector.record_step(
+                task_id=task_id,
+                component="executor",
+                success=step_ok,
+                latency_ms=step_latency,
+                retries=retries_used,
+                reason=f"step={step.title}, status={step_result.get('status', 'unknown')}",
+            )
+            pipeline_confidence.steps.append(StepConfidence(
+                component=PipelineComponent.EXECUTOR,
+                score=exec_score,
+                latency_ms=step_latency,
+                retries=retries_used,
+                reason=f"step={step.title}",
+            ))
+
+            trace.append({
+                "step": step.title,
+                "result": step_result,
+                "confidence": exec_score,
+            })
+
+            if not step_ok:
+                logger.error(f"Conductor: Pipeline halted at step '{step.title}'")
+                break
+
+        return trace
+
+    async def run(self, user_request: str) -> Dict[str, Any]:
+        """Main entry point for agent orchestration."""
+        from app.core.event_bus import event_bus
+        await event_bus.emit("conductor_start", {"request": user_request})
         
-        for match in matches:
-            try:
-                action_data = json.loads(match.group(1))
-                # Validate required fields
-                if "action_type" in action_data and "target_path" in action_data:
-                    queued = self.request_file_action(
-                        action_type=action_data["action_type"],
-                        target_path=action_data["target_path"],
-                        reason=action_data.get("reason", "자율 행동 분석기에서 자동 제안됨"),
-                        content=action_data.get("content"),
-                        requested_by="jarvis-autonomous-core"
-                    )
-                    actions.append(queued)
-            except Exception as e:
-                print(f"Error parsing action: {e}")
-        return actions
-
-    async def create_task(self, title: str, summary: str, task_type: str, priority: str, user_kpi: str | None) -> dict:
-        task = self.repo.create_task(title, summary, task_type, priority, user_kpi)
-        prompt = f"작업명: {title}\n요약: {summary}\n유형: {task_type}\n우선순위: {priority}\n사용자 지정 KPI: {user_kpi or '-'}\n초안 실행 계획을 간결하게 제안해라."
-        system = self.repo.get_prompts()["task"]
-        draft = await self.brains["gpt_oss"].run(prompt=prompt, system=system)
-        self.audit_engine.log("task_created", {"task": task, "draft": draft[:500]})
-        return {"task": task, "draft": draft}
-
-    def request_file_action(self, action_type: str, target_path: str, reason: str, content: str | None = None, requested_by: str = "jarvis") -> dict:
-        req = self.approval_engine.build_request(action_type, target_path, reason, requested_by, content).model_dump()
-        saved = self.repo.create_approval(req)
-        self.audit_engine.log("approval_requested", saved)
-        return saved
-
-    def resolve_approval(self, request_id: str, action: str) -> dict:
-        req = self.repo.get_approval(request_id)
-        if action == "approve":
-            result = self.execute_action(req)
-            updated = self.repo.update_approval(request_id, "approved")
-            updated["execution_result"] = result
-            self.audit_engine.log("approval_approved", updated)
-            return updated
-        else:
-            updated = self.repo.update_approval(request_id, "rejected")
-            self.audit_engine.log("approval_rejected", updated)
-            return updated
-
-    def execute_action(self, req: dict) -> dict:
-        action_type = req["action_type"]
-        target_path = req["target_path"]
-        content = req.get("content", "")
+        logger.info(f"Conductor: New request -> {user_request}")
+        trace = []
         
-        if action_type == "create_file":
-            return self.file_tool.create_file(target_path, content)
-        elif action_type == "update_file" or action_type == "modify_file":
-            return self.file_tool.update_file(target_path, content)
-        elif action_type == "delete_file":
-            return self.file_tool.delete_file(target_path)
-        else:
-            return {"ok": False, "reason": f"Unsupported action: {action_type}"}
+        try:
+            # 1. Plan
+            await event_bus.emit("agent_start", {"agent": "planner", "message": "Analyzing intent..."})
+            plan = await planner.plan(user_request)
+            await event_bus.emit("agent_done", {"agent": "planner", "plan": [s.title for s in plan.steps]})
+            
+            # 2. Execute steps
+            for step in plan.steps:
+                await event_bus.emit("step_start", {"step": step.title, "action": step.action})
+                res, attempts = await self._execute_step_with_retry(step)
+                
+                trace.append({
+                    "step": step.title,
+                    "result": res,
+                    "attempts": attempts
+                })
+                
+                await event_bus.emit("step_done", {
+                    "step": step.title, 
+                    "status": res.get("status", "success"),
+                    "attempts": attempts
+                })
+
+                if not res.get("ok"):
+                    await event_bus.emit("conductor_error", {"step": step.title, "error": res.get("error")})
+                    return {"ok": False, "trace": trace, "error": res.get("error")}
+
+            await event_bus.emit("conductor_done", {"message": "All tasks completed successfully."})
+            return {"ok": True, "trace": trace}
+            
+        except Exception as e:
+            logger.error(f"Conductor Error: {e}")
+            await event_bus.emit("conductor_fatal", {"error": str(e)})
+            return {"ok": False, "error": str(e)}
+
+    async def _execute_step_with_retry(self, step: SubTask):
+        """Executor + RALF Loop (Self-Healing) integration."""
+        from app.core.event_bus import event_bus
+        
+        # 1. First execution
+        await event_bus.emit("agent_start", {"agent": "executor", "message": f"Executing: {step.title}"})
+        res = await executor.execute(step)
+
+        # Handle Security/Approval states immediately
+        if res.get("status") == "blocked":
+            return res, 0
+
+        if res.get("status") == "pending_approval":
+            approval_req = self.approval_engine.build_request(
+                action_type=step.action,
+                target_path=res["target_path"],
+                reason=f"Hook trigger: {res['pattern']}",
+                requested_by="jarvis-core-v4",
+                content=res["content"]
+            ).model_dump()
+            saved = self.repo.create_approval(approval_req)
+            return {"ok": False, "status": "awaiting_approval", "approval_id": saved["request_id"]}, 0
+
+        # 2. Review first result
+        review_res = await reviewer.review(res, step.path)
+        if review_res["status"] == "pass":
+            return {"ok": True, "step": step.title, "result": res}, 0
+
+        # 3. Enter RALF Loop if not 'pass'
+        if review_res["status"] in ["fix", "fail"]:
+            ralf_res = await self.ralf.run(step, res)
+            return ralf_res, ralf_res.get("attempts", 0)
+
+        return {"ok": False, "status": "failed", "step": step.title}, 0
+
 
 conductor = JarvisConductor()

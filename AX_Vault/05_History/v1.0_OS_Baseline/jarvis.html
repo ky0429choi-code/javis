@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JARVIS v5 - 자비스 에이전트 오피스</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Segoe UI', 'Pretendard', system-ui, sans-serif;
+            background: linear-gradient(135deg, #0f0f1a 0%, #1a1b2e 100%);
+            color: #c0caf5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            background: rgba(30, 32, 48, 0.95);
+            border: 1px solid rgba(122, 162, 247, 0.3);
+            border-radius: 24px;
+            padding: 40px;
+            max-width: 600px;
+            box-shadow: 0 20px 60px rgba(122, 162, 247, 0.2);
+            backdrop-filter: blur(12px);
+        }
+        
+        .header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .logo {
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, #7aa2f7 0%, #bb9af7 100%);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            font-weight: bold;
+            color: white;
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            font-weight: bold;
+        }
+        
+        .header p {
+            font-size: 12px;
+            color: #565f89;
+        }
+        
+        .status {
+            background: rgba(15, 15, 26, 0.6);
+            border: 1px solid rgba(122, 162, 247, 0.2);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 25px;
+        }
+        
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            font-size: 14px;
+        }
+        
+        .status-label {
+            color: #565f89;
+        }
+        
+        .status-value {
+            font-weight: bold;
+            color: #9ece6a;
+        }
+        
+        .status-value.error {
+            color: #f7768e;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        
+        button {
+            flex: 1;
+            padding: 14px 20px;
+            border: none;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #7aa2f7 0%, #bb9af7 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(122, 162, 247, 0.4);
+        }
+        
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn-secondary {
+            background: rgba(122, 162, 247, 0.15);
+            color: #7aa2f7;
+            border: 1px solid rgba(122, 162, 247, 0.3);
+        }
+        
+        .btn-secondary:hover {
+            background: rgba(122, 162, 247, 0.25);
+        }
+        
+        .info {
+            background: rgba(158, 206, 106, 0.1);
+            border: 1px solid rgba(158, 206, 106, 0.3);
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 13px;
+            color: #9ece6a;
+            margin-top: 20px;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid rgba(122, 162, 247, 0.3);
+            border-top: 2px solid #7aa2f7;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">🤖</div>
+            <div>
+                <h1>JARVIS v5</h1>
+                <p>자비스 에이전트 오피스 - Core vNext</p>
+            </div>
+        </div>
+        
+        <div class="status">
+            <div class="status-item">
+                <span class="status-label">백엔드 상태</span>
+                <span class="status-value" id="backendStatus">확인 중...</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Ollama 상태</span>
+                <span class="status-value" id="ollamaStatus">확인 중...</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">UI 포트</span>
+                <span class="status-value">5173</span>
+            </div>
+        </div>
+        
+        <div class="button-group">
+            <button class="btn-primary" id="openBtn" disabled>
+                <span id="openBtnText">자비스 열기</span>
+            </button>
+            <button class="btn-secondary" id="restartBtn">새로고침</button>
+        </div>
+        
+        <div class="info">
+            💡 백엔드가 자동으로 실행 중입니다. 
+            <br>상태가 "정상"이면 "자비스 열기"를 클릭하세요.
+        </div>
+    </div>
+    
+    <script>
+        const BACKEND_URL = 'http://127.0.0.1:8000';
+        const FRONTEND_URL = 'http://localhost:5173';
+        
+        const backendStatusEl = document.getElementById('backendStatus');
+        const ollamaStatusEl = document.getElementById('ollamaStatus');
+        const openBtn = document.getElementById('openBtn');
+        const restartBtn = document.getElementById('restartBtn');
+        const openBtnText = document.getElementById('openBtnText');
+        
+        let backendOk = false;
+        let ollamaOk = false;
+        
+        async function checkHealth() {
+            try {
+                openBtn.disabled = true;
+                openBtnText.innerHTML = '<span class="loading"></span> 상태 확인 중...';
+                
+                const res = await fetch(`${BACKEND_URL}/api/health`);
+                if (res.ok) {
+                    const data = await res.json();
+                    
+                    backendStatusEl.textContent = '정상';
+                    backendStatusEl.className = 'status-value';
+                    backendOk = true;
+                    
+                    ollamaOk = data.ollama;
+                    ollamaStatusEl.textContent = data.ollama ? '연결됨' : '미연결';
+                    ollamaStatusEl.className = `status-value ${data.ollama ? '' : 'error'}`;
+                    
+                    if (backendOk && ollamaOk) {
+                        openBtn.disabled = false;
+                        openBtnText.textContent = '✨ 자비스 열기';
+                    } else if (backendOk) {
+                        openBtn.disabled = false;
+                        openBtnText.textContent = '🚀 자비스 열기 (Degraded)';
+                    }
+                } else {
+                    backendStatusEl.textContent = '연결 실패';
+                    backendStatusEl.className = 'status-value error';
+                    backendOk = false;
+                    openBtn.disabled = true;
+                    openBtnText.textContent = '자비스 열기';
+                }
+            } catch (error) {
+                backendStatusEl.textContent = '오류 발생';
+                backendStatusEl.className = 'status-value error';
+                backendOk = false;
+                openBtn.disabled = true;
+                openBtnText.textContent = '자비스 열기';
+                console.error('Health check failed:', error);
+            }
+        }
+        
+        openBtn.addEventListener('click', () => {
+            if (backendOk) {
+                window.open(FRONTEND_URL, 'jarvis-ui', 'width=1400,height=900');
+            }
+        });
+        
+        restartBtn.addEventListener('click', () => {
+            checkHealth();
+        });
+        
+        // Initial check and periodic updates
+        checkHealth();
+        setInterval(checkHealth, 10000);
+    </script>
+</body>
+</html>

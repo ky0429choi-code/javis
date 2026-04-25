@@ -1,113 +1,72 @@
 import logging
 import json
 import re
-from typing import Dict, List, Any
-from app.llm_router import router
-from app.harness.rules_engine import rules_engine
+from typing import Dict, Any
+from app.schemas.v4_core import PlanResult, SubTask
 
 logger = logging.getLogger(__name__)
 
-class Planner:
+class PlannerAgent:
+    """
+    JARVIS Planner Agent.
+    Role: Decomposes user intent into actionable subtasks.
+    Constraint: DOES NOT call LLM directly (Fix B6).
+    """
     def __init__(self):
         self.identity = "Jarvis"
-        self.system_base = f"당신은 {self.identity}입니다. 사용자의 요청을 분석하고 실행 가능한 단계별 계획을 수립하세요."
 
-    async def auto_plan_today(self, message: str) -> Dict[str, Any]:
+    async def plan(self, goal: str, context: Dict[str, Any] = None) -> PlanResult:
         """
-        Analyzes the user input and breaks it down into subtasks.
-        Returns structured JSON with 'goal', 'steps', 'priority'.
+        Generates a planning prompt (context) that the Conductor will 
+        use to invoke the Brain.
         """
-        logger.info(f"Planner: Planning for request: {message[:50]}...")
-        
-        # 1. Build system prompt for structured output
-        rules = rules_engine.get_system_prompt_extension("BACKEND")
-        system_prompt = (
-            self.system_base + rules + 
-            "\n\n[INSTRUCTION] 사용자의 요청을 분석하여 다음 JSON 형식으로 응답하세요:\n"
+        related_context = (context or {}).get("related_context", "관련 정보 없음")
+
+        # Build the structured instruction for the Brain
+        instruction = (
+            f"최종 목표: {goal}\n"
+            f"참고 컨텍스트: {related_context}\n\n"
+            "위 목표와 참고 컨텍스트(시스템 지식 및 과거 경험)를 바탕으로 사용자의 요청을 분석하세요.\n"
+            "특히 '과거 작업 경험 및 피드백'이 있다면 해당 실패 사례를 반복하지 말고 성공 사례를 따르십시오.\n"
+            "다음 JSON 형식으로 실행 단계를 분해하세요:\n"
             "{\n"
             '  "goal": "최종 목표 (한 줄)",\n'
             '  "priority": "high|medium|low",\n'
             '  "steps": [\n'
-            '    {"title": "단계 제목", "action": "create_file|update_file|code_gen|research|summary", "path": "대상 경로 또는 리소스", "instruction": "구체적인 지시사항"},\n'
-            '    ...\n'
+            '    {"title": "단계 제목", "action": "create_file|update_file|code_gen|research|summary", '
+            '"path": "대상 경로", "instruction": "상세 지침"}\n'
             '  ]\n'
             "}"
         )
-        
-        # 2. Call LLM Router
-        response = await router.call(prompt=message, system=system_prompt)
-        logger.debug(f"Planner LLM Response: {response[:200]}...")
-        
-        # 3. Parse JSON from response
-        parsed = self._extract_json_from_response(response)
-        
-        if not parsed:
-            logger.warning("Planner: JSON parsing failed, creating fallback plan")
-            return {
-                "identity": self.identity,
-                "goal": f"사용자 요청: {message}",
-                "priority": "medium",
-                "steps": [
-                    {
-                        "title": "기본 처리",
-                        "action": "research",
-                        "path": "사용자_요청",
-                        "instruction": message
-                    }
-                ],
-                "status": "planned_fallback",
-                "raw_response": response[:500]
-            }
-        
-        return {
-            "identity": self.identity,
-            "goal": parsed.get("goal", "작업 실행"),
-            "priority": parsed.get("priority", "medium"),
-            "steps": parsed.get("steps", []),
-            "status": "planned",
-            "raw_response": response[:500]
-        }
-    
-    def _extract_json_from_response(self, text: str) -> Dict[str, Any] | None:
+
+        # Return a "Pre-Plan" result containing the instruction
+        # The Conductor will take this instruction, call the Router, and parse the result.
+        return PlanResult(
+            goal=goal,
+            status="awaiting_llm_generation",
+            steps=[], # Empty until Brain fills it
+            instruction=instruction
+        )
+
+    def parse_brain_response(self, text: str) -> PlanResult:
         """
-        Extracts JSON from LLM response, handling markdown code blocks.
+        Helper called by Conductor to turn LLM text into a structured PlanResult.
         """
         try:
-            # Try direct JSON parse first
-            return json.loads(text)
-        except json.JSONDecodeError:
-            pass
-        
-        # Try extracting from markdown code blocks
-        patterns = [
-            r"```json\s*(.*?)\s*```",
-            r"```\s*(.*?)\s*```"
-        ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, text, re.DOTALL)
+            # Robust JSON extraction
+            match = re.search(r"\{.*\}", text, re.DOTALL)
             if match:
-                try:
-                    return json.loads(match.group(1))
-                except json.JSONDecodeError:
-                    continue
-        
-        # Try finding { ... } pattern
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group(0))
-            except json.JSONDecodeError:
-                pass
-        
-        logger.error(f"Planner: Could not extract JSON from response: {text[:200]}")
-        return None
+                data = json.loads(match.group(0))
+                steps = [SubTask(**s) for s in data.get("steps", [])]
+                return PlanResult(
+                    goal=data.get("goal", "작업 수행"),
+                    priority=data.get("priority", "medium"),
+                    steps=steps,
+                    status="planned"
+                )
+        except Exception as e:
+            logger.error(f"Planner: Failed to parse brain response: {e}")
+            
+        return PlanResult(goal="Error parsing plan", status="error")
 
-    async def search_vault(self, query: str) -> List[str]:
-        """
-        RAG placeholder: Search AX_Vault/02_Knowledge for related context.
-        """
-        logger.info(f"Planner: Searching vault for context: {query}")
-        return []
-
-planner = Planner()
+planner = PlannerAgent()

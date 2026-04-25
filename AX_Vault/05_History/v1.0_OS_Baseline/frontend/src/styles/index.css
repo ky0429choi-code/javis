@@ -1,0 +1,164 @@
+:root {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: #0f0f1a;
+  color: #a9b1d6;
+  font-family: 'Inter', Pretendard, system-ui, sans-serif;
+  overflow: hidden;
+}
+
+* { box-sizing: border-box; }
+
+.pixelated {
+  image-rendering: pixelated;
+}
+
+/* Layout Classes */
+.flex { display: flex; }
+.flex-col { flex-direction: column; }
+.flex-1 { flex: 1; }
+.h-screen { height: 100vh; }
+.w-full { width: 100%; }
+.min-w-0 { min-width: 0; }
+.min-h-0 { min-height: 0; }
+.min-h-540 { min-height: 540px; }
+.overflow-hidden { overflow: hidden; }
+.shrink-0 { flex-shrink: 0; }
+.relative { position: relative; }
+.absolute { position: absolute; }
+.inset-0 { top: 0; right: 0; bottom: 0; left: 0; }
+.z-0 { z-index: 0; }
+.z-1 { z-index: 1; }
+.z-10 { z-index: 10; }
+.z-20 { z-index: 20; }
+.z-30 { z-index: 30; }
+.hidden { display: none; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Desktop Specific */
+@media (min-width: 1024px) {
+  .lg-flex { display: flex; }
+  .lg-flex-row { flex-direction: row; }
+  .lg-w-64 { width: 16rem; }
+  .lg-w-450 { width: 450px; }
+  .lg-p-4 { padding: 1rem; }
+  .lg-gap-4 { gap: 1rem; }
+}
+
+/* Glass UI */
+.glass-panel {
+  background: rgba(30, 32, 48, 0.8);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(122, 162, 247, 0.15);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.glow-blue {
+  box-shadow: 0 0 20px rgba(122, 162, 247, 0.2);
+}
+
+.chat-bubble-jarvis {
+  background: linear-gradient(135deg, rgba(122, 162, 247, 0.1), rgba(187, 154, 247, 0.05));
+  border: 1px solid rgba(122, 162, 247, 0.2);
+}
+
+.chat-bubble-user {
+  background: rgba(158, 206, 106, 0.1);
+  border: 1px solid rgba(158, 206, 106, 0.2);
+}
+
+/* Custom Scrollbar */
+.custom-scrollbar::-webkit-scrollbar { width: 6px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(65, 72, 104, 0.5); border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(122, 162, 247, 0.5); }
+
+/* Approval Mini Card (Antigravity Style - Ultra Compact) */
+.approval-mini-card {
+  background: rgba(122, 162, 247, 0.12);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(122, 162, 247, 0.25);
+  border-radius: 12px;
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.approval-btn-approve {
+  background: rgba(158, 206, 106, 0.9);
+  color: #0f0f1a;
+  font-weight: bold;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 10px;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.approval-btn-approve:hover {
+  background: #aadb7f;
+  transform: scale(1.03);
+}
+
+.approval-btn-reject {
+  background: rgba(247, 118, 142, 0.2);
+  color: #f7768e;
+  border: 1px solid rgba(247, 118, 142, 0.3);
+  font-weight: bold;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 10px;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.approval-btn-reject:hover {
+  background: rgba(247, 118, 142, 0.3);
+}
+
+/* Mobile Responsive Adjustments */
+@media (max-width: 1023px) {
+  .main-container { flex-direction: column !important; }
+  .workspace-area { flex-direction: column !important; }
+  .office-panel { width: 100% !important; height: 40vh !important; }
+  .right-side-panel { width: 100% !important; height: 60vh !important; flex: 1; }
+  .sidebar-desktop { display: none !important; }
+}
+
+/* Utility for spacing (Partial Tailwind mapping) */
+.p-2 { padding: 0.5rem; }
+.p-4 { padding: 1rem; }
+.gap-2 { gap: 0.5rem; }
+.gap-4 { gap: 1rem; }
+.rounded-2xl { border-radius: 1rem; }
+.rounded-3xl { border-radius: 1.5rem; }
+.font-bold { font-weight: 700; }
+.text-white { color: white; }
+.text-xs { font-size: 0.75rem; }
+.text-12pt { font-size: 16px; } /* 12pt equivalent */
+
+.sidebar-item {
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.5rem;
+  border-radius: 0.75rem;
+  transition: all 0.2s ease;
+}
+
+.sidebar-item:hover {
+  background: rgba(122, 162, 247, 0.08);
+  border-color: rgba(122, 162, 247, 0.2);
+}

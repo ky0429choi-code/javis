@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  # JARVIS Backend
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: jarvis-backend
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      - OLLAMA_MODEL=${JARVIS_MODEL:-JARVIS:latest}
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///./data/jarvis.db}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DEBUG=${DEBUG:-false}
+      - APP_SHARED_KEY=${APP_SHARED_KEY:-AIN_PAPA_SHARED_KEY}
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./prompts:/app/prompts:ro
+    depends_on:
+      ollama:
+        condition: service_healthy
+    networks:
+      - jarvis-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Ollama LLM Server
+  ollama:
+    image: ollama/ollama:latest
+    container_name: jarvis-ollama
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - jarvis-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # PostgreSQL (선택사항, 프로덕션용)
+  # postgres:
+  #   image: postgres:15-alpine
+  #   container_name: jarvis-db
+  #   environment:
+  #     - POSTGRES_DB=jarvis
+  #     - POSTGRES_USER=jarvis
+  #     - POSTGRES_PASSWORD=change_me_to_strong_password
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   networks:
+  #     - jarvis-network
+  #   restart: unless-stopped
+
+networks:
+  jarvis-network:
+    driver: bridge
+
+volumes:
+  ollama_data:
+    driver: local
+  # postgres_data:
+  #   driver: local
