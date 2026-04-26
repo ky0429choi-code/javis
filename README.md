@@ -1,4 +1,5 @@
-# JARVIS Agent Office v5.0
+# 🤖 JAVIS (Jarvis Agent Core v5.0)
+> **AI-Driven Mode-Oriented Autonomous Agent Office**
 
 ## 🎯 프로젝트 개요
 
@@ -42,7 +43,7 @@
 
 ```bash
 # 저장소 클론
-git clone https://github.com/YOUR_USERNAME/jarvis-agent-office.git
+git clone https://github.com/ky0429choi-code/javis.git
 cd jarvis-agent-office
 
 # Python 가상환경 생성
@@ -176,13 +177,13 @@ https://random-id.ngrok.io/api/health
 
 ### 클라우드 배포 (프로덕션)
 
-**Railway** (무료, 가장 추천)
-```bash
-1. https://railway.app 에 로그인
-2. GitHub 저장소 연결
-3. 자동 배포 시작
-4. 공개 URL 할당
-```
+### 🎯 라이브 접속 (GAS 브릿지)
+언제 어디서나 웹 브라우저를 통해 자비스를 컨트롤할 수 있습니다.
+*   **GAS Web App**: [접속하기](https://script.google.com/macros/s/AKfycbxi7erLe3BCgZVd3F0i4feIRH6Yd4dTpekmtJsczzqFGwAjKUFaE_pIdmPurUtUywMGCQ/exec)
+
+### 클라우드 배포 (프로덕션)
+현재 **Railway**를 통한 완전 무상 배포를 권장합니다.
+1.  [Railway](https://railway.app) 로그인 및 GitHub(`ky0429choi-code/javis`) 연결
 
 **Render** (무료)
 ```bash
@@ -279,6 +280,24 @@ Response Response Response
 
 ---
 
+## 👥 기여자 (Contributors)
+
+이 프로젝트는 현재까지 **총 6명의 핵심 개발자**의 헌신적인 기여로 완성되었습니다.
+
+-   **Lead Architect**: JARVIS Developer
+-   **Core Contributors**: (전체 6인의 개발진이 참여 중)
+-   **Community**: [javis Issues](https://github.com/ky0429choi-code/javis/issues) 를 통해 누구나 기여 가능합니다.
+
+---
+
+## 📅 프로젝트 히스토리 (Milestones)
+
+-   **2026-04-26**: Core 5.0 통합 및 **GAS Web App 브릿지** 공식 런칭
+-   **2026-04-18**: 7단계 자율 에이전트 워크플로우(Conductor) 도입
+-   **Historical**: 6인의 개발진에 의한 초기 아키텍처 설계 및 프로토타입 완성
+
+---
+
 ## 🤝 기여 방법
 
 1. Fork 저장소
@@ -333,10 +352,10 @@ A: `rm data/jarvis.db` 후 재시작
 
 ---
 
-**개발자**: JARVIS Team  
-**버전**: 5.0 (Mode-Driven Architecture)  
-**최종 업데이트**: 2026-04-18  
-**상태**: 🟢 **프로덕션 준비 완료**
+**Project Owner**: JARVIS Team & 6 Contributors  
+**Current Version**: 5.0 (Mode-Driven Architecture)  
+**Last Updated**: 2026-04-26 (Latest Stable)  
+**Status**: 🟢 **Production Ready & External Access Enabled**
 
 ---
 
